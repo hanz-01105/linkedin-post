@@ -12,6 +12,7 @@ interface Post {
   engagement?: Record<string, string>;
   post_type?: string;
   media_urls?: string[];  // Added this!
+  local_media_paths?: string[];  // Added this!
   post_url?: string;      // Added this!
 }
 
@@ -111,48 +112,53 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* FIXED: Removed min-h-screen constraint to allow natural height expansion */}
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* Header */}
-        <header className="text-center mb-8">
+        {/* Header - reduced bottom margin */}
+        <header className="text-center mb-4">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
             LinkedIn Post Viewer
           </h1>
           <p className="text-gray-600">Extract and analyze LinkedIn posts with media support</p>
         </header>
 
-        {/* Debug viewer - remove this in production */}
-        {posts.length > 0 && <DebugDataViewer posts={posts} />}
+        {/* FIXED: Reduced spacing and margins throughout */}
+        <div className="max-w-4xl mx-auto mb-6">
+          {/* Debug viewer - HIDDEN for professional look */}
+          {/* Uncomment if you need to debug data structure issues */}
+          {/* {posts.length > 0 && <DebugDataViewer posts={posts} />} */}
 
-        {/* URL Form with file upload support */}
-        <URLForm 
-          onSubmit={handleFetchPosts}
-          onFileUpload={handleFileUpload}  // Added this prop!
-          loading={loading}
-        />
+          {/* URL Form with file upload support */}
+          <URLForm 
+            onSubmit={handleFetchPosts}
+            onFileUpload={handleFileUpload}  // Added this prop!
+            loading={loading}
+          />
 
-        {/* Loading state */}
-        {loading && (
-          <div className="text-center mt-8">
-            <div className="inline-flex items-center space-x-2">
-              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-gray-600">Scraping posts...</span>
+          {/* Loading state - reduced margin */}
+          {loading && (
+            <div className="text-center mt-4">
+              <div className="inline-flex items-center space-x-2">
+                <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-gray-600">Scraping posts...</span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Error state */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-8">
-            <div className="flex items-center space-x-2">
-              <span className="text-red-600 text-xl">❌</span>
-              <p className="text-red-800">{error}</p>
+          {/* Error state - reduced margin */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-red-600 text-xl">❌</span>
+                <p className="text-red-800">{error}</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Posts list */}
+        {/* Posts use full screen width */}
         {!loading && !error && <PostList posts={posts} />}
       </div>
     </div>

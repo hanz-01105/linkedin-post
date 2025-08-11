@@ -17,9 +17,9 @@
     </style>
   </head>
   <body class="bg-gray-100">
-    <!-- Header -->
+    <!-- Header - FIXED: Full width -->
     <header class="bg-white shadow-sm sticky top-0 z-50">
-      <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="w-full px-4 py-4 flex items-center justify-between">
         <h1 class="text-2xl font-bold text-blue-600">LinkedIn Post Viewer</h1>
         <nav class="space-x-4">
           <a href="#" class="text-gray-700 hover:text-blue-600">Home</a>
@@ -28,16 +28,16 @@
       </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto p-6">
-      <div id="root" class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <!-- React will mount post cards here -->
+    <!-- Main Content - FIXED: Full width, no grid constraints -->
+    <main class="w-full p-6">
+      <div id="root">
+        <!-- React will mount the full app here -->
       </div>
     </main>
 
-    <!-- Footer -->
+    <!-- Footer - FIXED: Full width -->
     <footer class="bg-white border-t mt-10">
-      <div class="max-w-7xl mx-auto px-4 py-6 text-center text-sm text-gray-500">
+      <div class="w-full px-4 py-6 text-center text-sm text-gray-500">
         © 2025 LinkedIn Post Viewer. Built with ❤️ for the community.
       </div>
     </footer>

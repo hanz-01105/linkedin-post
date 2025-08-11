@@ -1,6 +1,8 @@
 # main.py
 from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, validator
 from typing import List, Optional
 import logging
@@ -9,7 +11,7 @@ import os
 import json
 
 # Import your scraper functions
-from .viewer import setup_driver, login_linkedin, scrape_posts
+from viewer import setup_driver, login_linkedin, scrape_posts
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +36,27 @@ app.add_middleware(
     allow_methods=["*"],  # Or restrict if you want
     allow_headers=["*"],
 )
+@app.get("/media_{session_id}/{filename}")
+async def serve_media_file(session_id: str, filename: str):
+    """Serve downloaded media files"""
+    file_path = f"linkedin_posts/media_{session_id}/{filename}"
+    
+    print(f"🔍 Looking for file: {file_path}")
+    
+    if not os.path.exists(file_path):
+        print(f"❌ File not found: {file_path}")
+        # List what files actually exist
+        media_dir = f"linkedin_posts/media_{session_id}"
+        if os.path.exists(media_dir):
+            files = os.listdir(media_dir)
+            print(f"📁 Files in {media_dir}: {files}")
+        else:
+            print(f"📁 Directory doesn't exist: {media_dir}")
+        raise HTTPException(status_code=404, detail=f"Media file not found: {filename}")
+    
+    print(f"✅ Serving file: {file_path}")
+    return FileResponse(file_path)
+app.mount("/linkedin_posts", StaticFiles(directory="linkedin_posts"), name="linkedin_posts")
 # Request/Response models
 class ScrapeRequest(BaseModel):
     email: str
@@ -56,6 +79,9 @@ class PostData(BaseModel):
     engagement: dict
     post_type: str
     profile_url: str
+    media_urls: Optional[List[str]] = []  # FIXED: Added missing field
+    local_media_paths: Optional[List[str]] = []  # FIXED: Added missing field  
+    post_url: Optional[str] = None  # FIXED: Added missing field
 
 class ScrapeResponse(BaseModel):
     success: bool

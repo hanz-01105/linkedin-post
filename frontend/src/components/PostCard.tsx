@@ -1,5 +1,5 @@
 // frontend/components/PostCard.tsx
-import { Calendar, Heart, MessageCircle, Share, Image, Play, FileText, ExternalLink } from "lucide-react";
+import { Calendar, Heart, MessageCircle, Share, Image, Play, FileText, ExternalLink, AlertTriangle } from "lucide-react";
 
 interface Post {
   post_number: number;
@@ -8,6 +8,7 @@ interface Post {
   engagement?: Record<string, string>;
   post_type?: string;
   media_urls?: string[];
+  local_media_paths?: string[];  // NEW: Local downloaded media
   post_url?: string;
 }
 
@@ -31,6 +32,44 @@ export default function PostCard({ post }: { post: Post }) {
       minute: '2-digit'
     });
   };
+
+  // NEW: Function to get the best available media URL
+  const getMediaUrl = (originalUrl: string, localPath?: string) => {
+    // Prefer local downloaded file if available
+    if (localPath) {
+      return `http://127.0.0.1:8000/${localPath}`;
+    }
+    
+    // Check if original URL is a blob (won't work)
+    if (originalUrl.startsWith('blob:')) {
+      return null;  // Blob URLs are unusable outside scraping session
+    }
+    
+    // Return original LinkedIn CDN URL (may require proxy)
+    return originalUrl;
+  };
+
+  // NEW: Check if media URL is problematic
+  const getMediaStatus = (originalUrl: string, localPath?: string) => {
+    if (localPath) {
+      return { status: 'local', message: 'Downloaded locally' };
+    }
+    if (originalUrl.startsWith('blob:')) {
+      return { status: 'blob', message: 'Blob URL - unavailable outside scraping session' };
+    }
+    if (originalUrl.includes('media.licdn.com')) {
+      return { status: 'cdn', message: 'LinkedIn CDN - may require authentication' };
+    }
+    return { status: 'unknown', message: 'Unknown URL type' };
+  };
+
+  // Combine original URLs with local paths
+  const mediaItems = post.media_urls?.map((url, index) => ({
+    originalUrl: url,
+    localPath: post.local_media_paths?.[index],
+    displayUrl: getMediaUrl(url, post.local_media_paths?.[index]),
+    status: getMediaStatus(url, post.local_media_paths?.[index])
+  })) || [];
 
   return (
     <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/50 overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
@@ -76,90 +115,158 @@ export default function PostCard({ post }: { post: Post }) {
         )}
       </div>
 
-      {/* Media Section */}
-      {post.media_urls && post.media_urls.length > 0 && (
-        <div className="px-6 pb-4">
-          <div className="grid grid-cols-1 gap-3">
-            {post.media_urls.map((url, index) => (
+      {/* Enhanced Media Section - MUCH MORE PROMINENT */}
+      {mediaItems.length > 0 && (
+        <div className="px-0 pb-4">
+          <div className="grid grid-cols-1 gap-6">
+            {mediaItems.map((item, index) => (
               <div key={index} className="relative">
-                {post.post_type === 'image' ? (
-                  <div className="relative">
-                    <img
-                      src={url}
-                      alt={`Post media ${index + 1}`}
-                      className="w-full h-48 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                      onClick={() => window.open(url, '_blank')}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        if (target.nextElementSibling) {
-                          (target.nextElementSibling as HTMLElement).style.display = 'block';
-                        }
-                      }}
-                    />
-                    <div 
-                      className="hidden w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 border-2 border-dashed border-gray-300"
-                    >
-                      <div className="text-center">
-                        <Image className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm">Image unavailable</p>
-                        <a 
-                          href={url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-xs text-indigo-600 hover:underline"
-                        >
-                          View original
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                ) : post.post_type === 'video' ? (
-                  <div className="relative">
-                    <video
-                      src={url}
-                      className="w-full h-48 object-cover rounded-lg"
-                      controls
-                      onError={(e) => {
-                        const target = e.target as HTMLVideoElement;
-                        target.style.display = 'none';
-                        if (target.nextElementSibling) {
-                          (target.nextElementSibling as HTMLElement).style.display = 'block';
-                        }
-                      }}
-                    />
-                    <div 
-                      className="hidden w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 border-2 border-dashed border-gray-300"
-                    >
-                      <div className="text-center">
-                        <Play className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm">Video unavailable</p>
-                        <a 
-                          href={url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-xs text-indigo-600 hover:underline"
-                        >
-                          View original
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-gray-50 rounded-lg p-4 border">
-                    <div className="flex items-center space-x-2">
-                      <FileText className="w-5 h-5 text-gray-400" />
-                      <a 
-                        href={url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-sm text-indigo-600 hover:underline truncate"
+                {/* Media Status Indicator - HIDDEN for professional look */}
+                {/* Uncomment if you need to show media loading status */}
+                {/*
+                <div className="px-6 mb-3 flex items-center space-x-2 text-sm font-medium">
+                  <div className={`w-3 h-3 rounded-full ${
+                    item.status.status === 'local' ? 'bg-green-500' :
+                    item.status.status === 'blob' ? 'bg-red-500' :
+                    item.status.status === 'cdn' ? 'bg-yellow-500' : 'bg-gray-500'
+                  }`} />
+                  <span className={`${
+                    item.status.status === 'local' ? 'text-green-700' :
+                    item.status.status === 'blob' ? 'text-red-700' :
+                    item.status.status === 'cdn' ? 'text-yellow-700' : 'text-gray-700'
+                  }`}>
+                    {item.status.message}
+                  </span>
+                </div>
+                */}
+
+                {/* PROMINENT Media Display */}
+                {item.displayUrl ? (
+                  post.post_type === 'video' || item.originalUrl.includes('mp4') || item.originalUrl.includes('webm') ? (
+                    <div className="relative group">
+                      <video
+                        src={item.displayUrl}
+                        className="w-full max-h-[600px] object-contain bg-black cursor-pointer rounded-lg"
+                        controls
+                        preload="metadata"
+                        poster=""
+                        onError={(e) => {
+                          console.error('Video failed to load:', item.displayUrl);
+                          const target = e.target as HTMLVideoElement;
+                          target.style.display = 'none';
+                          const errorDiv = target.nextElementSibling as HTMLElement;
+                          if (errorDiv) errorDiv.style.display = 'block';
+                        }}
+                      />
+                      <div 
+                        className="hidden w-full min-h-80 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 border-2 border-dashed border-gray-300"
                       >
-                        {url}
-                      </a>
+                        <div className="text-center p-8">
+                          <Play className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                          <p className="text-xl font-medium mb-2">Video unavailable</p>
+                          <p className="text-sm text-gray-500 mb-4">The video could not be loaded</p>
+                          <a 
+                            href={item.originalUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            <span>View original</span>
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative group">
+                      <img
+                        src={item.displayUrl}
+                        alt={`Post media ${index + 1}`}
+                        className="w-full max-h-[600px] object-contain cursor-pointer hover:shadow-2xl transition-all duration-300 bg-gray-50 rounded-lg"
+                        onClick={() => item.displayUrl && window.open(item.displayUrl, '_blank')}
+                        onLoad={() => console.log('✅ Image loaded successfully:', item.displayUrl)}
+                        onError={(e) => {
+                          console.error('❌ Image failed to load:', item.displayUrl);
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const errorDiv = target.nextElementSibling as HTMLElement;
+                          if (errorDiv) errorDiv.style.display = 'block';
+                        }}
+                      />
+                      {/* Prominent zoom indicator on hover */}
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <div className="bg-white bg-opacity-95 rounded-full p-3 shadow-lg">
+                          <ExternalLink className="w-6 h-6 text-gray-700" />
+                        </div>
+                      </div>
+                      
+                      <div 
+                        className="hidden w-full min-h-80 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 border-2 border-dashed border-gray-300"
+                      >
+                        <div className="text-center p-8">
+                          <Image className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                          <p className="text-xl font-medium mb-2">Image unavailable</p>
+                          <p className="text-sm text-gray-500 mb-4">The image could not be loaded</p>
+                          {item.originalUrl && (
+                            <a 
+                              href={item.originalUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              <span>Try original URL</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  // PROMINENT No displayable URL available
+                  <div className="w-full min-h-80 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 border-2 border-dashed border-gray-300">
+                    <div className="text-center p-8">
+                      <AlertTriangle className="w-20 h-20 mx-auto mb-6 text-red-400" />
+                      <p className="text-2xl font-medium text-red-600 mb-3">Media unavailable</p>
+                      <p className="text-sm text-gray-500 mb-6 max-w-sm">
+                        {item.status.status === 'blob' 
+                          ? 'This was a temporary blob URL that expired when the scraping session ended.' 
+                          : 'This media requires LinkedIn authentication to view.'}
+                      </p>
+                      {item.originalUrl && !item.originalUrl.startsWith('blob:') && (
+                        <a 
+                          href={item.originalUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-lg"
+                        >
+                          <ExternalLink className="w-5 h-5" />
+                          <span>Try original URL</span>
+                        </a>
+                      )}
                     </div>
                   </div>
                 )}
+
+                {/* Debug Info - HIDDEN for professional look */}
+                {/* Uncomment the section below if you need to debug issues */}
+                {/*
+                <details className="px-6 mt-4 text-xs text-gray-500">
+                  <summary className="cursor-pointer hover:text-gray-700 transition-colors font-medium">🔍 Debug Info</summary>
+                  <div className="mt-3 bg-gray-50 p-4 rounded-lg text-xs font-mono border">
+                    <div className="space-y-2">
+                      <p><strong>Original:</strong> <span className="break-all text-blue-600">{item.originalUrl}</span></p>
+                      <p><strong>Local:</strong> <span className="text-green-600">{item.localPath || 'None'}</span></p>
+                      <p><strong>Display:</strong> <span className="break-all text-purple-600">{item.displayUrl || 'None'}</span></p>
+                      <p><strong>Status:</strong> <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                        item.status.status === 'local' ? 'bg-green-100 text-green-800' :
+                        item.status.status === 'blob' ? 'bg-red-100 text-red-800' :
+                        item.status.status === 'cdn' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'
+                      }`}>{item.status.status}</span></p>
+                    </div>
+                  </div>
+                </details>
+                */}
               </div>
             ))}
           </div>
