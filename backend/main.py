@@ -10,7 +10,7 @@ from datetime import datetime
 import os
 import json
 
-# Import your scraper functions
+# Import your scraper functions from viewer.py
 from viewer import setup_driver, login_linkedin, scrape_posts
 
 # Configure logging
@@ -23,45 +23,31 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - ensure all frontend URLs are included
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],  # Add your frontend dev URLs
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",  # Add alternative ports
+        "*"  # Allow all origins for development
+    ],
     allow_credentials=True,
-    allow_methods=["*"],  # Or restrict if you want
+    allow_methods=["*"],
     allow_headers=["*"],
 )
-@app.get("/media_{session_id}/{filename}")
-async def serve_media_file(session_id: str, filename: str):
-    """Serve downloaded media files"""
-    file_path = f"linkedin_posts/media_{session_id}/{filename}"
-    
-    print(f"🔍 Looking for file: {file_path}")
-    
-    if not os.path.exists(file_path):
-        print(f"❌ File not found: {file_path}")
-        # List what files actually exist
-        media_dir = f"linkedin_posts/media_{session_id}"
-        if os.path.exists(media_dir):
-            files = os.listdir(media_dir)
-            print(f"📁 Files in {media_dir}: {files}")
-        else:
-            print(f"📁 Directory doesn't exist: {media_dir}")
-        raise HTTPException(status_code=404, detail=f"Media file not found: {filename}")
-    
-    print(f"✅ Serving file: {file_path}")
-    return FileResponse(file_path)
-app.mount("/linkedin_posts", StaticFiles(directory="linkedin_posts"), name="linkedin_posts")
+
+# Mount static files directory for media
+if os.path.exists("linkedin_posts"):
+    app.mount("/linkedin_posts", StaticFiles(directory="linkedin_posts"), name="linkedin_posts")
+
 # Request/Response models
 class ScrapeRequest(BaseModel):
     email: str
     password: str
-    profile_urls: List[str]  # Support multiple profiles
+    profile_urls: List[str]
     scrolls: int = 10
     max_posts: int = 50
     
@@ -75,13 +61,15 @@ class ScrapeRequest(BaseModel):
 class PostData(BaseModel):
     post_number: int
     content: str
-    timestamp: str
-    engagement: dict
-    post_type: str
-    profile_url: str
-    media_urls: Optional[List[str]] = []  # FIXED: Added missing field
-    local_media_paths: Optional[List[str]] = []  # FIXED: Added missing field  
-    post_url: Optional[str] = None  # FIXED: Added missing field
+    timestamp: Optional[str] = None
+    engagement: Optional[dict] = {}
+    post_type: Optional[str] = "text"
+    media_urls: Optional[List[str]] = []
+    local_media_paths: Optional[List[str]] = []
+    post_url: Optional[str] = None
+    profile_url: Optional[str] = None
+    author_name: Optional[str] = None
+    author_avatar: Optional[str] = None
 
 class ScrapeResponse(BaseModel):
     success: bool
@@ -130,9 +118,10 @@ async def scrape_linkedin_posts(request: ScrapeRequest, background_tasks: Backgr
                     logger.info(f"Scraping profile: {profile_url}")
                     posts = scrape_posts(driver, profile_url, request.scrolls, request.max_posts)
                     
-                    # Add profile URL to each post
+                    # Ensure each post has the profile URL
                     for post in posts:
-                        post['profile_url'] = profile_url
+                        if not post.get('profile_url'):
+                            post['profile_url'] = profile_url
                     
                     all_posts.extend(posts)
                     scraped_profiles.append(profile_url)
@@ -143,15 +132,48 @@ async def scrape_linkedin_posts(request: ScrapeRequest, background_tasks: Backgr
                     continue
             
             # Sort posts by timestamp (most recent first)
-            all_posts = sorted(all_posts, key=lambda x: x.get('timestamp', ''), reverse=True)
+            def get_timestamp(post):
+                ts = post.get('timestamp', '')
+                if not ts:
+                    return datetime.min
+                try:
+                    return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except:
+                    return datetime.min
+            
+            all_posts = sorted(all_posts, key=get_timestamp, reverse=True)
             
             # Save to file in background
             background_tasks.add_task(save_scrape_results, session_id, all_posts, scraped_profiles)
             
+            # Convert to PostData models for response
+            post_models = []
+            for post in all_posts:
+                try:
+                    post_model = PostData(**post)
+                    post_models.append(post_model)
+                except Exception as e:
+                    logger.warning(f"Could not convert post to model: {e}")
+                    # Add with defaults
+                    post_model = PostData(
+                        post_number=post.get('post_number', 0),
+                        content=post.get('content', ''),
+                        timestamp=post.get('timestamp'),
+                        engagement=post.get('engagement', {}),
+                        post_type=post.get('post_type', 'text'),
+                        media_urls=post.get('media_urls', []),
+                        local_media_paths=post.get('local_media_paths', []),
+                        post_url=post.get('post_url'),
+                        profile_url=post.get('profile_url'),
+                        author_name=post.get('author_name'),
+                        author_avatar=post.get('author_avatar')
+                    )
+                    post_models.append(post_model)
+            
             return ScrapeResponse(
                 success=True,
-                posts=all_posts,
-                total_posts=len(all_posts),
+                posts=post_models,
+                total_posts=len(post_models),
                 profiles_scraped=scraped_profiles
             )
             
@@ -171,7 +193,10 @@ async def scrape_linkedin_posts(request: ScrapeRequest, background_tasks: Backgr
         
     finally:
         if driver:
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass
 
 @app.get("/sessions")
 def get_scrape_sessions():
@@ -183,27 +208,81 @@ def get_scrape_sessions():
     sessions = []
     for filename in os.listdir(sessions_dir):
         if filename.endswith('.json'):
-            sessions.append({
-                "session_id": filename.replace('.json', ''),
-                "filename": filename
-            })
+            filepath = os.path.join(sessions_dir, filename)
+            try:
+                # Get file modification time
+                mtime = os.path.getmtime(filepath)
+                sessions.append({
+                    "session_id": filename.replace('linkedin_posts_', '').replace('.json', ''),
+                    "filename": filename,
+                    "timestamp": datetime.fromtimestamp(mtime).isoformat()
+                })
+            except:
+                continue
     
+    # Sort by timestamp (most recent first)
+    sessions.sort(key=lambda x: x['timestamp'], reverse=True)
     return {"sessions": sessions}
 
 @app.get("/session/{session_id}")
 def get_session_data(session_id: str):
     """Get data from a specific scrape session"""
-    filename = f"linkedin_posts/linkedin_posts_{session_id}.json"
+    # Try different filename patterns
+    filenames = [
+        f"linkedin_posts/linkedin_posts_{session_id}.json",
+        f"linkedin_posts/{session_id}.json",
+        f"linkedin_posts/session_{session_id}.json"
+    ]
     
-    if not os.path.exists(filename):
-        raise HTTPException(status_code=404, detail="Session not found")
+    for filename in filenames:
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # Ensure proper structure
+                if isinstance(data, list):
+                    # Old format - just array of posts
+                    return {
+                        "session_id": session_id,
+                        "data": {
+                            "posts": data,
+                            "total_posts": len(data),
+                            "profiles_scraped": []
+                        }
+                    }
+                else:
+                    # New format with metadata
+                    return {"session_id": session_id, "data": data}
+                    
+            except Exception as e:
+                logger.error(f"Error reading session data: {str(e)}")
+                continue
     
-    try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return {"session_id": session_id, "data": data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading session data: {str(e)}")
+    raise HTTPException(status_code=404, detail="Session not found")
+
+@app.get("/media/{session_id}/{filename}")
+async def serve_media_file(session_id: str, filename: str):
+    """Serve downloaded media files"""
+    file_path = f"linkedin_posts/media_{session_id}/{filename}"
+    
+    logger.info(f"🔍 Looking for media file: {file_path}")
+    
+    if not os.path.exists(file_path):
+        logger.error(f"❌ Media file not found: {file_path}")
+        
+        # Check if media directory exists
+        media_dir = f"linkedin_posts/media_{session_id}"
+        if os.path.exists(media_dir):
+            files = os.listdir(media_dir)
+            logger.info(f"📁 Files in {media_dir}: {files}")
+        else:
+            logger.info(f"📁 Directory doesn't exist: {media_dir}")
+            
+        raise HTTPException(status_code=404, detail=f"Media file not found: {filename}")
+    
+    logger.info(f"✅ Serving media file: {file_path}")
+    return FileResponse(file_path)
 
 def save_scrape_results(session_id: str, posts: List[dict], profiles: List[str]):
     """Background task to save scrape results"""
@@ -229,4 +308,4 @@ def save_scrape_results(session_id: str, posts: List[dict], profiles: List[str])
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
