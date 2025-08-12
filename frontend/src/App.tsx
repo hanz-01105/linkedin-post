@@ -3,85 +3,49 @@ import React, { useState } from "react";
 import URLForm from "./components/URLForm";
 import PostList from "./components/PostList";
 import { scrapePosts } from "./services/api";
+import { Linkedin } from "lucide-react";
 
-// Updated interface to include missing fields
 interface Post {
   post_number: number;
   content: string;
   timestamp?: string;
   engagement?: Record<string, string>;
   post_type?: string;
-  media_urls?: string[];  // Added this!
-  local_media_paths?: string[];  // Added this!
-  post_url?: string;      // Added this!
+  media_urls?: string[];
+  post_url?: string;
+  profile_url?: string;
+  author_name?: string;
+  author_avatar?: string;
 }
-
-// Debug component to check data structure
-const DebugDataViewer = ({ posts }: { posts: Post[] }) => {
-  if (posts.length === 0) return null;
-  
-  return (
-    <div className="bg-gray-100 p-4 rounded-lg mb-4">
-      <h3 className="text-lg font-bold mb-2">🔍 Debug: Post Data Structure</h3>
-      <p className="text-sm mb-2">Number of posts: {posts.length}</p>
-      
-      <div>
-        <h4 className="font-semibold mb-2">First post structure:</h4>
-        <pre className="bg-white p-2 rounded text-xs overflow-auto max-h-40">
-          {JSON.stringify(posts[0], null, 2)}
-        </pre>
-        
-        <div className="mt-4 text-sm">
-          <h4 className="font-semibold">Checking required fields:</h4>
-          <ul className="list-disc list-inside mt-2">
-            <li>Has post_url: {posts[0].post_url ? '✅ Yes' : '❌ No'}</li>
-            <li>Has media_urls: {posts[0].media_urls ? '✅ Yes' : '❌ No'}</li>
-            <li>Media URLs count: {posts[0].media_urls?.length || 0}</li>
-            <li>Post type: {posts[0].post_type || 'undefined'}</li>
-          </ul>
-          
-          {posts[0].media_urls && posts[0].media_urls.length > 0 && (
-            <div className="mt-2">
-              <h5 className="font-medium">Media URLs:</h5>
-              <ul className="text-xs">
-                {posts[0].media_urls.map((url: string, index: number) => (
-                  <li key={index} className="truncate">
-                    {index + 1}. {url}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const App: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(true);
 
-  // Handle file upload (NEW FEATURE)
+  // Handle file upload
   const handleFileUpload = (uploadedPosts: Post[]) => {
-    console.log('🔍 DEBUG - handleFileUpload called');
-    console.log('🔍 DEBUG - Uploaded posts:', uploadedPosts);
-    console.log('🔍 DEBUG - Posts type:', typeof uploadedPosts);
-    console.log('🔍 DEBUG - Is array:', Array.isArray(uploadedPosts));
+    console.log('Processing uploaded posts:', uploadedPosts.length);
     
-    if (uploadedPosts && uploadedPosts.length > 0) {
-      console.log('🔍 DEBUG - First post:', uploadedPosts[0]);
-      console.log('🔍 DEBUG - Posts count:', uploadedPosts.length);
-    } else {
-      console.log('❌ DEBUG - No posts or empty array');
-    }
+    // Extract author info from profile URL if available
+    const enrichedPosts = uploadedPosts.map(post => {
+      // Try to extract username from profile URL
+      if (post.profile_url && !post.author_name) {
+        const match = post.profile_url.match(/linkedin\.com\/in\/([^\/]+)/);
+        if (match) {
+          post.author_name = match[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+      }
+      return post;
+    });
     
-    setPosts(uploadedPosts || []);
+    setPosts(enrichedPosts);
     setError(null);
+    setShowForm(false); // Hide form after successful upload
   };
 
-  // Updated to handle new parameters
+  // Handle API fetch
   const handleFetchPosts = async (
     email: string,
     password: string,
@@ -94,17 +58,27 @@ const App: React.FC = () => {
     setPosts([]);
 
     try {
-      // Check if your API supports the new parameters
       const data = await scrapePosts(email, password, [url], scrolls, maxPosts);
-      
-      console.log('🔍 DEBUG - API Response:', data);
+      console.log('API Response:', data);
       
       const postsData = data.posts || [];
-      console.log('🔍 DEBUG - Posts from API:', postsData);
       
-      setPosts(postsData);
+      // Extract author info from URL
+      const enrichedPosts = postsData.map((post: Post) => {
+        if (url && !post.author_name) {
+          const match = url.match(/linkedin\.com\/in\/([^\/]+)/);
+          if (match) {
+            post.author_name = match[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          }
+        }
+        post.profile_url = url;
+        return post;
+      });
+      
+      setPosts(enrichedPosts);
+      setShowForm(false); // Hide form after successful fetch
     } catch (err) {
-      console.error('❌ API Error:', err);
+      console.error('API Error:', err);
       setError("Failed to fetch posts. Please check your credentials or try again later.");
     } finally {
       setLoading(false);
@@ -112,55 +86,92 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      {/* FIXED: Removed min-h-screen constraint to allow natural height expansion */}
-      <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
-        
-        {/* Header - reduced bottom margin */}
-        <header className="text-center mb-4">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            LinkedIn Post Viewer
-          </h1>
-          <p className="text-gray-600">Extract and analyze LinkedIn posts with media support</p>
-        </header>
-
-        {/* FIXED: Reduced spacing and margins throughout */}
-        <div className="max-w-4xl mx-auto mb-6">
-          {/* Debug viewer - HIDDEN for professional look */}
-          {/* Uncomment if you need to debug data structure issues */}
-          {/* {posts.length > 0 && <DebugDataViewer posts={posts} />} */}
-
-          {/* URL Form with file upload support */}
-          <URLForm 
-            onSubmit={handleFetchPosts}
-            onFileUpload={handleFileUpload}  // Added this prop!
-            loading={loading}
-          />
-
-          {/* Loading state - reduced margin */}
-          {loading && (
-            <div className="text-center mt-4">
-              <div className="inline-flex items-center space-x-2">
-                <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-gray-600">Scraping posts...</span>
-              </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center space-x-3">
+              <Linkedin className="w-8 h-8 text-[#0077b5]" />
+              <h1 className="text-xl font-semibold text-gray-900">LinkedIn Post Viewer</h1>
             </div>
-          )}
-
-          {/* Error state - reduced margin */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-red-600 text-xl">❌</span>
-                <p className="text-red-800">{error}</p>
-              </div>
-            </div>
-          )}
+            {posts.length > 0 && (
+              <button
+                onClick={() => setShowForm(!showForm)}
+                className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                {showForm ? 'Hide Settings' : 'Show Settings'}
+              </button>
+            )}
+          </div>
         </div>
+      </header>
 
-        {/* Posts use full screen width */}
-        {!loading && !error && <PostList posts={posts} />}
-      </div>
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Form Section - Collapsible */}
+        {showForm && (
+          <div className="mb-8">
+            <URLForm 
+              onSubmit={handleFetchPosts}
+              onFileUpload={handleFileUpload}
+              loading={loading}
+            />
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-16 h-16 border-4 border-gray-200 border-t-[#0077b5] rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-600">Scraping LinkedIn posts...</p>
+            <p className="text-sm text-gray-500 mt-2">This may take a few moments</p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && !loading && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-8">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-red-800">Error loading posts</h3>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Posts Grid - Similar to MPSYCH News Section */}
+        {!loading && !error && posts.length > 0 && (
+          <PostList posts={posts} />
+        )}
+
+        {/* Empty State when no posts and not loading */}
+        {!loading && !error && posts.length === 0 && !showForm && (
+          <div className="text-center py-20">
+            <button
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-[#0077b5] hover:bg-[#005885] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0077b5] transition-colors"
+            >
+              Get Started
+            </button>
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <p className="text-center text-sm text-gray-500">
+            LinkedIn Post Viewer - Extract and analyze public LinkedIn posts
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };

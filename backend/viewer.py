@@ -77,10 +77,13 @@ def login_linkedin(driver, email, password):
         print("❌ Failed to find login elements after 15 seconds.")
         raise
 
+def construct_posts_url(profile_url):
+    """Convert profile URL to posts activity URL."""
+    base_url = profile_url.rstrip('/').split('/recent-activity')[0]
+    return f"{base_url}/recent-activity/all/"
+
 def download_media_file(driver, url, session_id, post_number, media_index):
-    """
-    FIXED: Capture media directly from DOM elements instead of trying to fetch blob URLs
-    """
+    """Download media files with DOM capture for blob URLs"""
     try:
         # Create media directory
         media_dir = f"linkedin_posts/media_{session_id}"
@@ -92,257 +95,84 @@ def download_media_file(driver, url, session_id, post_number, media_index):
         if url.startswith('blob:'):
             print(f"🚀 DOM-based blob capture: {url[:100]}...")
             
-            # CORRECT APPROACH: Find the DOM element and extract data directly
+            # JavaScript to capture blob content from DOM
             js_dom_capture = f"""
             const blobUrl = '{url}';
             const callback = arguments[arguments.length - 1];
             
-            // Find the video or image element with this blob URL
+            // Find video or image element with this blob URL
             const videoElement = document.querySelector(`video[src="${{blobUrl}}"]`);
             const imageElement = document.querySelector(`img[src="${{blobUrl}}"]`);
             
             if (videoElement) {{
                 console.log('Found video element, capturing frame...');
-                
-                // For video: capture current frame using canvas
                 try {{
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     
-                    // Wait for video to be ready
-                    if (videoElement.readyState >= 2) {{ // HAVE_CURRENT_DATA
+                    if (videoElement.readyState >= 2) {{
                         canvas.width = videoElement.videoWidth || videoElement.clientWidth || 640;
                         canvas.height = videoElement.videoHeight || videoElement.clientHeight || 480;
-                        
-                        // Draw current video frame to canvas
                         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                        
-                        // Convert to base64
                         const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                         
                         callback({{
                             success: true,
                             data: dataUrl,
                             type: 'image/jpeg',
-                            mediaType: 'video',
-                            width: canvas.width,
-                            height: canvas.height,
-                            originalUrl: blobUrl
+                            mediaType: 'video'
                         }});
                     }} else {{
-                        // Video not ready, try to load it first
-                        videoElement.addEventListener('loadeddata', function() {{
-                            canvas.width = videoElement.videoWidth || 640;
-                            canvas.height = videoElement.videoHeight || 480;
-                            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                            
-                            callback({{
-                                success: true,
-                                data: dataUrl,
-                                type: 'image/jpeg',
-                                mediaType: 'video',
-                                width: canvas.width,
-                                height: canvas.height,
-                                originalUrl: blobUrl
-                            }});
-                        }}, {{ once: true }});
-                        
-                        // Trigger load if needed
-                        if (videoElement.paused) {{
-                            videoElement.load();
-                        }}
-                        
-                        // Timeout fallback
-                        setTimeout(() => {{
-                            if (videoElement.readyState >= 2) {{
-                                canvas.width = videoElement.videoWidth || 640;
-                                canvas.height = videoElement.videoHeight || 480;
-                                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                                
-                                callback({{
-                                    success: true,
-                                    data: dataUrl,
-                                    type: 'image/jpeg',
-                                    mediaType: 'video',
-                                    width: canvas.width,
-                                    height: canvas.height,
-                                    originalUrl: blobUrl
-                                }});
-                            }} else {{
-                                callback({{success: false, error: 'Video not ready after timeout'}});
-                            }}
-                        }}, 3000);
+                        callback({{success: false, error: 'Video not ready'}});
                     }}
                 }} catch (videoError) {{
                     callback({{success: false, error: 'Video capture error: ' + videoError.message}});
                 }}
-                
             }} else if (imageElement) {{
                 console.log('Found image element, capturing...');
-                
-                // For image: draw to canvas and extract
                 try {{
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     
-                    // Wait for image to load if needed
                     if (imageElement.complete && imageElement.naturalWidth > 0) {{
                         canvas.width = imageElement.naturalWidth;
                         canvas.height = imageElement.naturalHeight;
                         ctx.drawImage(imageElement, 0, 0);
-                        
                         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
                         
                         callback({{
                             success: true,
                             data: dataUrl,
                             type: 'image/jpeg',
-                            mediaType: 'image',
-                            width: canvas.width,
-                            height: canvas.height,
-                            originalUrl: blobUrl
+                            mediaType: 'image'
                         }});
                     }} else {{
-                        // Image not loaded, wait for it
-                        imageElement.addEventListener('load', function() {{
-                            canvas.width = imageElement.naturalWidth;
-                            canvas.height = imageElement.naturalHeight;
-                            ctx.drawImage(imageElement, 0, 0);
-                            
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                            
-                            callback({{
-                                success: true,
-                                data: dataUrl,
-                                type: 'image/jpeg',
-                                mediaType: 'image',
-                                width: canvas.width,
-                                height: canvas.height,
-                                originalUrl: blobUrl
-                            }});
-                        }}, {{ once: true }});
-                        
-                        // Timeout fallback
-                        setTimeout(() => {{
-                            if (imageElement.complete) {{
-                                canvas.width = imageElement.naturalWidth || imageElement.width || 300;
-                                canvas.height = imageElement.naturalHeight || imageElement.height || 200;
-                                ctx.drawImage(imageElement, 0, 0);
-                                const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                                
-                                callback({{
-                                    success: true,
-                                    data: dataUrl,
-                                    type: 'image/jpeg',
-                                    mediaType: 'image',
-                                    width: canvas.width,
-                                    height: canvas.height,
-                                    originalUrl: blobUrl
-                                }});
-                            }} else {{
-                                callback({{success: false, error: 'Image not loaded after timeout'}});
-                            }}
-                        }}, 3000);
+                        callback({{success: false, error: 'Image not loaded'}});
                     }}
                 }} catch (imageError) {{
                     callback({{success: false, error: 'Image capture error: ' + imageError.message}});
                 }}
-                
             }} else {{
-                // Element not found, try alternative selectors
-                const allVideos = document.querySelectorAll('video');
-                const allImages = document.querySelectorAll('img');
-                
-                let foundElement = null;
-                
-                // Check all videos for matching blob URL
-                for (let video of allVideos) {{
-                    if (video.src === blobUrl || video.currentSrc === blobUrl) {{
-                        foundElement = video;
-                        break;
-                    }}
-                }}
-                
-                // Check all images for matching blob URL
-                if (!foundElement) {{
-                    for (let img of allImages) {{
-                        if (img.src === blobUrl || img.currentSrc === blobUrl) {{
-                            foundElement = img;
-                            break;
-                        }}
-                    }}
-                }}
-                
-                if (foundElement) {{
-                    console.log('Found element with alternative search, retrying...');
-                    // Recursive call with found element
-                    if (foundElement.tagName === 'VIDEO') {{
-                        const canvas = document.createElement('canvas');
-                        const ctx = canvas.getContext('2d');
-                        canvas.width = foundElement.videoWidth || 640;
-                        canvas.height = foundElement.videoHeight || 480;
-                        ctx.drawImage(foundElement, 0, 0, canvas.width, canvas.height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                        
-                        callback({{
-                            success: true,
-                            data: dataUrl,
-                            type: 'image/jpeg',
-                            mediaType: 'video',
-                            width: canvas.width,
-                            height: canvas.height,
-                            originalUrl: blobUrl
-                        }});
-                    }} else {{
-                        const canvas = document.createElement('canvas');
-                        const ctx = canvas.getContext('2d');
-                        canvas.width = foundElement.naturalWidth || foundElement.width;
-                        canvas.height = foundElement.naturalHeight || foundElement.height;
-                        ctx.drawImage(foundElement, 0, 0);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                        
-                        callback({{
-                            success: true,
-                            data: dataUrl,
-                            type: 'image/jpeg',
-                            mediaType: 'image',
-                            width: canvas.width,
-                            height: canvas.height,
-                            originalUrl: blobUrl
-                        }});
-                    }}
-                }} else {{
-                    callback({{success: false, error: 'No DOM element found with blob URL'}});
-                }}
+                callback({{success: false, error: 'No DOM element found with blob URL'}});
             }}
             """
             
             try:
-                # Execute async script with proper timeout
-                driver.set_script_timeout(10)  # 10 second timeout should be enough
+                driver.set_script_timeout(10)
                 result = driver.execute_async_script(js_dom_capture)
                 
                 if result and result.get('success'):
                     data_url = result.get('data')
                     media_type = result.get('mediaType', 'image')
-                    width = result.get('width', 0)
-                    height = result.get('height', 0)
                     
-                    print(f"🎉 DOM CAPTURE SUCCESS! Type: {media_type}, Size: {width}x{height}")
-                    
-                    # Determine file extension based on media type
+                    ext = 'jpg'
                     if media_type == 'video':
-                        ext = 'jpg'  # Video frame capture as JPEG
                         filename = f"post_{post_number}_video_frame_{media_index}_{url_hash}.{ext}"
                     else:
-                        ext = 'jpg'  # Image capture as JPEG
                         filename = f"post_{post_number}_image_{media_index}_{url_hash}.{ext}"
                     
                     filepath = os.path.join(media_dir, filename)
                     
-                    # Extract and save base64 data
                     if ',' in data_url:
                         base64_data = data_url.split(',', 1)[1]
                         
@@ -350,24 +180,10 @@ def download_media_file(driver, url, session_id, post_number, media_index):
                         with open(filepath, 'wb') as f:
                             f.write(base64.b64decode(base64_data))
                         
-                        actual_size = os.path.getsize(filepath)
-                        print(f"✅ DOM CAPTURE SAVED: {filename} ({actual_size} bytes)")
-                        
-                        # Verify it's a valid file
-                        if actual_size > 1000:  # Should be larger than 1KB
-                            return f"media_{session_id}/{filename}"
-                        else:
-                            print(f"⚠️ File too small ({actual_size} bytes)")
-                            os.remove(filepath)
-                            return None
-                    else:
-                        print(f"❌ Invalid data URL format")
-                        return None
-                
-                else:
-                    error_msg = result.get('error', 'Unknown error') if result else 'No result'
-                    print(f"❌ DOM capture failed: {error_msg}")
-                    return None
+                        print(f"✅ DOM CAPTURE SAVED: {filename}")
+                        return f"media_{session_id}/{filename}"
+                    
+                return None
                     
             except Exception as js_error:
                 print(f"❌ JavaScript DOM capture error: {js_error}")
@@ -377,83 +193,46 @@ def download_media_file(driver, url, session_id, post_number, media_index):
             # Handle regular URLs (non-blob)
             print(f"📥 Downloading regular URL: {url[:100]}...")
             
-            # Get cookies from current session
             cookies = driver.get_cookies()
             cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
             
-            # Headers to mimic browser request
             headers = {
                 'User-Agent': driver.execute_script("return navigator.userAgent"),
                 'Referer': 'https://www.linkedin.com/',
-                'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Dest': 'video',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'cross-site'
+                'Accept': '*/*'
             }
             
             try:
-                response = requests.get(
-                    url, 
-                    cookies=cookie_dict, 
-                    headers=headers, 
-                    timeout=60,  # Longer timeout for videos
-                    stream=True,
-                    verify=True
-                )
+                response = requests.get(url, cookies=cookie_dict, headers=headers, timeout=60, stream=True)
                 
                 if response.status_code == 200:
-                    # Determine file extension from content-type or URL
                     content_type = response.headers.get('content-type', '').lower()
                     
                     ext_map = {
                         'video/mp4': 'mp4',
-                        'video/webm': 'webm',
-                        'video/quicktime': 'mov',
-                        'video/x-msvideo': 'avi',
                         'image/jpeg': 'jpg',
-                        'image/png': 'png', 
-                        'image/gif': 'gif',
-                        'image/webp': 'webp'
+                        'image/png': 'png',
+                        'image/gif': 'gif'
                     }
                     
-                    ext = 'mp4'  # default for videos
+                    ext = 'mp4'
                     for ct, extension in ext_map.items():
                         if ct in content_type:
                             ext = extension
                             break
                     
-                    # If content-type doesn't help, try URL extension
-                    if ext == 'mp4' and '.' in url:
-                        url_ext = url.split('.')[-1].split('?')[0].lower()
-                        if url_ext in ['mp4', 'webm', 'mov', 'avi', 'jpg', 'jpeg', 'png', 'gif', 'webp']:
-                            ext = 'jpg' if url_ext == 'jpeg' else url_ext
-                    
                     filename = f"post_{post_number}_media_{media_index}_{url_hash}.{ext}"
                     filepath = os.path.join(media_dir, filename)
                     
-                    # Download in chunks for large files
-                    total_size = 0
                     with open(filepath, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             if chunk:
                                 f.write(chunk)
-                                total_size += len(chunk)
                     
-                    print(f"✅ Downloaded: {filename} ({total_size} bytes)")
+                    print(f"✅ Downloaded: {filename}")
                     return f"media_{session_id}/{filename}"
                     
-                else:
-                    print(f"❌ HTTP {response.status_code}: {response.reason}")
-                    return None
-                    
-            except requests.exceptions.Timeout:
-                print(f"❌ Download timeout after 60 seconds")
-                return None
-            except requests.exceptions.RequestException as req_error:
+            except Exception as req_error:
                 print(f"❌ Request error: {req_error}")
                 return None
                 
@@ -461,8 +240,15 @@ def download_media_file(driver, url, session_id, post_number, media_index):
         print(f"❌ Error downloading {url[:100]}: {e}")
         return None
 
-def extract_post_content(post_element, post_number, driver, session_id):
-    """Extract detailed content from a single post, including downloaded media."""
+def extract_post_content(post_element, post_number, driver, session_id=None):
+    """Extract detailed content from a single post, including media URLs, post permalink, and author avatar.
+    
+    Args:
+        post_element: The selenium web element for the post
+        post_number: The post number in the sequence
+        driver: The selenium webdriver instance
+        session_id: Optional session ID for media downloads
+    """
     post_data = {
         'post_number': post_number,
         'content': '',
@@ -470,9 +256,151 @@ def extract_post_content(post_element, post_number, driver, session_id):
         'engagement': {},
         'post_type': 'text',
         'media_urls': [],
-        'local_media_paths': [],
-        'post_url': ''
+        'post_url': '',
+        'author_name': '',
+        'author_avatar': ''
     }
+
+    # Extract author information (name and avatar) - ENHANCED VERSION
+    try:
+        # Try to find author name - expanded selectors
+        author_selectors = [
+            '.update-components-actor__name span[aria-hidden="true"]',
+            '.update-components-actor__name',
+            '.feed-shared-actor__name span[aria-hidden="true"]',
+            '.feed-shared-actor__name',
+            '.update-components-actor__title',
+            '.feed-shared-actor__title',
+            'button[aria-label*="View"][aria-label*="profile"] span',
+            '.feed-shared-actor__container-link span[dir="ltr"]',
+            '.update-components-actor__container span[dir="ltr"]'
+        ]
+        
+        for selector in author_selectors:
+            try:
+                author_element = post_element.find_element(By.CSS_SELECTOR, selector)
+                author_name = author_element.text.strip()
+                if author_name and author_name not in ['', '•', '·']:
+                    # Clean up the name
+                    author_name = author_name.split('\n')[0].split('•')[0].strip()
+                    if author_name:
+                        post_data['author_name'] = author_name
+                        print(f"✅ Found author name: {author_name}")
+                        break
+            except NoSuchElementException:
+                continue
+        
+        # Try to find author avatar - ENHANCED WITH MORE SELECTORS
+        avatar_selectors = [
+            # Primary selectors
+            '.update-components-actor__image img',
+            '.feed-shared-actor__avatar img',
+            '.update-components-actor__avatar img',
+            
+            # Secondary selectors
+            'img.presence-entity__image',
+            'img.feed-shared-actor__avatar-image',
+            'img.EntityPhoto-circle-3',
+            'img.EntityPhoto-circle-4',
+            'img.EntityPhoto-circle-5',
+            'img.ivm-view-attr__img--centered',
+            
+            # Generic profile image selectors
+            'img[alt*="profile"]',
+            'img[alt*="Profile"]',
+            'img[alt*="avatar"]',
+            
+            # Link-based selectors
+            '.update-components-actor__container img',
+            '.feed-shared-actor__container-link img',
+            'a[href*="/in/"] img.presence-entity__image',
+            
+            # Fallback selectors
+            '.update-components-actor img[width="48"]',
+            '.update-components-actor img[width="56"]',
+            '.feed-shared-actor img[width="48"]',
+            '.feed-shared-actor img[width="56"]'
+        ]
+        
+        avatar_found = False
+        for selector in avatar_selectors:
+            if avatar_found:
+                break
+            try:
+                avatar_imgs = post_element.find_elements(By.CSS_SELECTOR, selector)
+                for avatar_img in avatar_imgs:
+                    avatar_src = avatar_img.get_attribute('src')
+                    # Check if it's a valid avatar URL
+                    if avatar_src and 'data:image' not in avatar_src and avatar_src != '':
+                        # LinkedIn avatar URLs usually contain these patterns
+                        if any(pattern in avatar_src for pattern in ['profile-displayphoto', 'shrink_', '/v2/', 'media-exp']):
+                            post_data['author_avatar'] = avatar_src
+                            print(f"✅ Found avatar URL: {avatar_src[:80]}...")
+                            avatar_found = True
+                            break
+                        # Also accept any image that's likely an avatar based on size
+                        elif 'media.licdn.com' in avatar_src:
+                            width = avatar_img.get_attribute('width')
+                            height = avatar_img.get_attribute('height')
+                            classes = avatar_img.get_attribute('class') or ''
+                            
+                            # Check if it's likely an avatar based on context
+                            if any(term in classes.lower() for term in ['avatar', 'profile', 'entity']):
+                                post_data['author_avatar'] = avatar_src
+                                print(f"✅ Found avatar URL (by class): {avatar_src[:80]}...")
+                                avatar_found = True
+                                break
+                            # Check by size - avatars are usually small square images
+                            elif width and height and int(width) <= 100 and int(height) <= 100:
+                                post_data['author_avatar'] = avatar_src
+                                print(f"✅ Found avatar URL (by size): {avatar_src[:80]}...")
+                                avatar_found = True
+                                break
+            except Exception as e:
+                continue
+        
+        # If no avatar found, try JavaScript extraction as last resort
+        if not avatar_found:
+            try:
+                js_extract_avatar = """
+                const postEl = arguments[0];
+                const avatarImgs = postEl.querySelectorAll('img');
+                for (let img of avatarImgs) {
+                    // Check various properties that indicate it's an avatar
+                    const src = img.src || '';
+                    const alt = img.alt || '';
+                    const classes = img.className || '';
+                    const width = img.width;
+                    
+                    if (src && !src.includes('data:image')) {
+                        // Check if it's in the actor/author section
+                        const parent = img.closest('.update-components-actor, .feed-shared-actor');
+                        if (parent) {
+                            // Check if it's not a company logo or other non-avatar image
+                            if (width <= 100 && (
+                                src.includes('profile-displayphoto') ||
+                                src.includes('shrink_') ||
+                                classes.includes('avatar') ||
+                                classes.includes('entity') ||
+                                alt.toLowerCase().includes('profile')
+                            )) {
+                                return src;
+                            }
+                        }
+                    }
+                }
+                return null;
+                """
+                
+                avatar_url = driver.execute_script(js_extract_avatar, post_element)
+                if avatar_url:
+                    post_data['author_avatar'] = avatar_url
+                    print(f"✅ Found avatar URL (via JS): {avatar_url[:80]}...")
+            except Exception as js_error:
+                print(f"⚠️ JS avatar extraction failed: {js_error}")
+                
+    except Exception as e:
+        print(f"⚠️ Could not extract author info: {e}")
 
     # Extract post textual content
     content_selectors = [
@@ -480,7 +408,9 @@ def extract_post_content(post_element, post_number, driver, session_id):
         '.feed-shared-text',
         '.update-components-text',
         '.attributed-text-segment-list__content',
-        '[data-attributed-text]'
+        '[data-attributed-text]',
+        '.feed-shared-update-v2__description',
+        '.feed-shared-inline-show-more-text'
     ]
     for selector in content_selectors:
         try:
@@ -511,174 +441,145 @@ def extract_post_content(post_element, post_number, driver, session_id):
     except NoSuchElementException:
         pass
 
-    # IMPROVED: Extract media URLs with focus on real content
+    # Extract media URLs - ENHANCED VERSION FOR BETTER IMAGE EXTRACTION
     media_urls = []
     local_media_paths = []
-    media_index = 0
     
-    print(f"🔍 Scanning post #{post_number} for media...")
+    # Try JavaScript extraction for media first (more reliable)
+    try:
+        js_extract_media = """
+        const postEl = arguments[0];
+        const mediaUrls = [];
+        
+        // Find all images in the post content area (not avatars)
+        const contentImgs = postEl.querySelectorAll(`
+            .feed-shared-image img,
+            .update-components-image img,
+            .feed-shared-external-video__image img,
+            .feed-shared-article__image img,
+            img.feed-shared-image__image,
+            img.update-components-image__image,
+            .feed-shared-update-v2__content img,
+            [data-test-id="main-feed-activity-card__entity"] img
+        `);
+        
+        contentImgs.forEach(img => {
+            const src = img.src || img.dataset.src || '';
+            if (src && !src.includes('data:image') && !src.includes('static-exp')) {
+                // Filter out avatars and UI elements
+                const classes = img.className || '';
+                const alt = img.alt || '';
+                if (!classes.includes('avatar') && 
+                    !classes.includes('entity-photo') && 
+                    !classes.includes('presence') &&
+                    !classes.includes('reactions-icon') &&
+                    !alt.toLowerCase().includes('profile photo')) {
+                    mediaUrls.push(src);
+                }
+            }
+        });
+        
+        // Find all videos
+        const videos = postEl.querySelectorAll('video');
+        videos.forEach(video => {
+            const src = video.src || video.dataset.src || '';
+            if (src && !src.includes('data:')) {
+                mediaUrls.push(src);
+            }
+        });
+        
+        return [...new Set(mediaUrls)]; // Remove duplicates
+        """
+        
+        js_media_urls = driver.execute_script(js_extract_media, post_element)
+        if js_media_urls:
+            for url in js_media_urls:
+                if url not in media_urls:
+                    media_urls.append(url)
+                    print(f"✅ Found media via JS: {url[:80]}...")
+    except Exception as js_error:
+        print(f"⚠️ JS media extraction failed: {js_error}")
     
-    # PRIORITY 1: Look for video elements first (most likely to be blob URLs)
-    video_selectors = [
-        'video[src^="blob:"]',               # Blob video URLs (highest priority)
-        'video source[src^="blob:"]',        # Video source elements with blob
-        'video[src*="licdn.com"]',           # LinkedIn hosted videos
-        'video source[src*="licdn.com"]',    # LinkedIn video sources
-        '.feed-shared-video video',          # Videos in feed containers
-        '.update-components-video video',    # Videos in update components
-    ]
-    
-    found_videos = set()
-    
-    for selector in video_selectors:
-        try:
-            videos = post_element.find_elements(By.CSS_SELECTOR, selector)
-            for video in videos:
-                src = video.get_attribute('src')
-                if src and src not in found_videos:
-                    found_videos.add(src)
-                    media_index += 1
+    # Fallback to regular element selection if JS didn't find anything
+    if not media_urls:
+        # Get all images but filter out profile pictures and UI elements
+        all_images = post_element.find_elements(By.TAG_NAME, 'img')
+        for img in all_images:
+            src = img.get_attribute('src') or img.get_attribute('data-src') or ''
+            alt = img.get_attribute('alt') or ''
+            classes = img.get_attribute('class') or ''
+            
+            # Skip if it's a profile picture, avatar, or UI element
+            if src and 'media.licdn.com' in src:
+                # List of terms that indicate it's NOT post content
+                skip_terms = [
+                    'avatar', 'profile', 'entity-photo', 'presence-entity', 
+                    'actor', 'reactions-icon', 'static-exp', 'emoji'
+                ]
+                
+                should_skip = any(term in classes.lower() + alt.lower() for term in skip_terms)
+                
+                # Also skip small images (likely UI elements)
+                width = img.get_attribute('width')
+                if width and width.isdigit() and int(width) < 100:
+                    should_skip = True
+                
+                if not should_skip and src not in media_urls:
                     media_urls.append(src)
-                    print(f"🎥 Found video #{media_index}: {src[:100]}...")
+                    print(f"✅ Added post media: {src[:80]}...")
                     
-                    # Download immediately to capture blob URLs before they expire
-                    try:
-                        local_path = download_media_file(driver, src, session_id, post_number, media_index)
+                    # Download media if session_id is provided
+                    if session_id:
+                        local_path = download_media_file(driver, src, session_id, post_number, len(media_urls))
                         if local_path:
                             local_media_paths.append(local_path)
-                            print(f"✅ Video downloaded: {local_path}")
-                        else:
-                            print(f"❌ Failed to download video #{media_index}")
-                    except Exception as e:
-                        print(f"❌ Error downloading video #{media_index}: {e}")
-                        
-        except Exception as e:
-            print(f"⚠️ Error with video selector '{selector}': {e}")
-            continue
 
-    # PRIORITY 2: Look for images
-    image_selectors = [
-        'img[src^="blob:"]',                 # Blob image URLs
-        'img[src*="media.licdn.com"]',       # LinkedIn CDN images
-        'img[src*="feedshare"]',             # Feed share images
-        '.feed-shared-image img',            # Images in feed containers
-        '.update-components-image img',      # Images in update components
-    ]
-    
-    found_images = set()
-    
-    for selector in image_selectors:
-        try:
-            images = post_element.find_elements(By.CSS_SELECTOR, selector)
-            for img in images:
-                src = img.get_attribute('src')
-                if src and src not in found_images:
-                    # Filter out profile photos and UI elements
-                    classes = img.get_attribute('class') or ''
-                    alt_text = img.get_attribute('alt') or ''
-                    
-                    skip_patterns = [
-                        'profile-photo', 'profile-displayphoto', 'reactions-icon', 
-                        'entity-photo', 'emoji', 'reaction', 'actor-photo',
-                        'navigation', 'logo', 'icon'
-                    ]
-                    
-                    should_skip = False
-                    for pattern in skip_patterns:
-                        if pattern in classes.lower() or pattern in alt_text.lower():
-                            should_skip = True
-                            break
-                    
-                    if not should_skip:
-                        found_images.add(src)
-                        media_index += 1
-                        media_urls.append(src)
-                        print(f"🖼️ Found image #{media_index}: {src[:100]}...")
-                        
-                        try:
-                            local_path = download_media_file(driver, src, session_id, post_number, media_index)
-                            if local_path:
-                                local_media_paths.append(local_path)
-                                print(f"✅ Image downloaded: {local_path}")
-                            else:
-                                print(f"❌ Failed to download image #{media_index}")
-                        except Exception as e:
-                            print(f"❌ Error downloading image #{media_index}: {e}")
-                            
-        except Exception as e:
-            print(f"⚠️ Error with image selector '{selector}': {e}")
-            continue
+    # Also check for videos
+    all_videos = post_element.find_elements(By.TAG_NAME, 'video')
+    for video in all_videos:
+        src = video.get_attribute('src') or video.get_attribute('data-src') or ''
+        if src and src not in media_urls:
+            media_urls.append(src)
+            print(f"✅ Added video URL: {src[:80]}...")
+            
+            # Download video if session_id is provided
+            if session_id:
+                local_path = download_media_file(driver, src, session_id, post_number, len(media_urls))
+                if local_path:
+                    local_media_paths.append(local_path)
 
     post_data['media_urls'] = media_urls
-    post_data['local_media_paths'] = local_media_paths
+    
+    # Add local media paths if any were downloaded
+    if local_media_paths:
+        post_data['local_media_paths'] = local_media_paths
 
-    # Determine post type based on media found
-    if any('video' in url.lower() or url.startswith('blob:') for url in media_urls):
+    # Determine post type
+    if any('video' in url.lower() or 'mp4' in url.lower() for url in media_urls):
         post_data['post_type'] = 'video'
     elif media_urls:
         post_data['post_type'] = 'image'
     else:
-        # Check for article shares
-        article_elements = post_element.find_elements(By.CSS_SELECTOR, '.update-components-article, .article-share')
+        # Check for article containers
+        article_elements = post_element.find_elements(By.CSS_SELECTOR, '.update-components-article, .feed-shared-article')
         if article_elements:
             post_data['post_type'] = 'article'
 
-    # Extract post URL via URN or menu
-    try:
-        post_data['post_url'] = extract_post_url_via_menu(post_element, post_number, driver)
-    except Exception as e:
-        print(f"⚠️ Could not extract post URL: {e}")
-        post_data['post_url'] = ''
+    # Extract post URL via menu or URN
+    post_data['post_url'] = extract_post_url_via_menu(post_element, post_number, driver)
 
-    print(f"📄 Post #{post_number}: {post_data['post_type']} - {len(media_urls)} media files found, {len(local_media_paths)} successfully downloaded")
+    # Debug output
+    print(f"📄 Post #{post_number}: {post_data['post_type']} - {len(media_urls)} media files")
+    if post_data['author_name']:
+        print(f"👤 Author: {post_data['author_name']}")
+    if post_data['author_avatar']:
+        print(f"🖼️ Avatar: {post_data['author_avatar'][:80]}...")
+    else:
+        print(f"⚠️ No avatar found for post #{post_number}")
     
     return post_data
-
-def extract_post_url_via_menu(post_element, post_number, driver):
-    """Extract post URL by URN or menu method"""
-    try:
-        # Try URN method first (fastest and most reliable)
-        urn = post_element.get_attribute("data-urn")
-        if urn and "activity:" in urn:
-            activity_id = urn.split("activity:")[1]
-            post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{activity_id}"
-            print(f"✅ Generated URL from URN: {post_url}")
-            return post_url
-
-        # Fallback to menu method
-        print(f"ℹ️ URN not found, trying menu method for post #{post_number}")
-        
-        try:
-            menu_button = post_element.find_element(By.CSS_SELECTOR, 'button[aria-label*="menu"]')
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu_button)
-            driver.execute_script("arguments[0].click();", menu_button)
-            time.sleep(1)
-
-            copy_button = driver.find_element(By.XPATH, "//span[contains(text(), 'Copy link')]/ancestor::button")
-            driver.execute_script("arguments[0].click();", copy_button)
-            time.sleep(0.5)
-
-            # Try reading from clipboard
-            post_url = driver.execute_script("return navigator.clipboard.readText();")
-            if post_url and "linkedin.com" in post_url:
-                print(f"✅ Clipboard URL: {post_url}")
-                return post_url
-        except Exception as menu_error:
-            print(f"⚠️ Menu method failed: {menu_error}")
-        
-        return None
-
-    except Exception as e:
-        print(f"❌ Error extracting post URL for post #{post_number}: {e}")
-        return None
-
-def construct_posts_url(profile_url):
-    """Convert profile URL to posts activity URL."""
-    base_url = profile_url.rstrip('/').split('/recent-activity')[0]
-    return f"{base_url}/recent-activity/all/"
-
 def scrape_posts(driver, profile_url, scrolls=10, max_posts=50):
-    """Scrape posts with real media download capability"""
+    """Scrape posts with optional media download capability"""
     posts_url = construct_posts_url(profile_url)
     print(f"🎯 Navigating to: {posts_url}")
     driver.get(posts_url)
@@ -700,7 +601,7 @@ def scrape_posts(driver, profile_url, scrolls=10, max_posts=50):
     print(f"📜 Scrolling to load posts...")
     for i in range(scrolls):
         driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
-        time.sleep(2)  # Allow time for content to load
+        time.sleep(2)
 
     # Find all post elements
     post_selectors = [
@@ -716,13 +617,14 @@ def scrape_posts(driver, profile_url, scrolls=10, max_posts=50):
             all_posts = posts
             break
 
-    # Generate session ID for this scrape
+    # Generate session ID for this scrape (optional for media downloads)
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     extracted_posts = []
     for i, post_element in enumerate(all_posts[:max_posts]):
         try:
             print(f"\n⚙️ Processing post {i+1}/{min(len(all_posts), max_posts)}")
+            # Pass session_id for media downloads, or None to skip downloads
             post_data = extract_post_content(post_element, i + 1, driver, session_id)
             if post_data['content'].strip() or post_data['media_urls']:
                 extracted_posts.append(post_data)
@@ -753,15 +655,13 @@ def display_posts(posts):
             print(f"   📅 {post['timestamp']}")
         if post['post_url']:
             print(f"   🔗 LinkedIn Post URL: {post['post_url']}")
-        print(f"   💬 {post['content']}")
+        if post['author_name']:
+            print(f"   👤 Author: {post['author_name']}")
+        print(f"   💬 {post['content'][:200]}..." if len(post['content']) > 200 else f"   💬 {post['content']}")
         if post['media_urls']:
-            print(f"   🖼️ Original Media URLs: {len(post['media_urls'])}")
-            for url in post['media_urls']:
-                print(f"     - {url}")
+            print(f"   🖼️ Media URLs: {len(post['media_urls'])}")
         if post.get('local_media_paths'):
             print(f"   💾 Downloaded Media: {len(post['local_media_paths'])}")
-            for path in post['local_media_paths']:
-                print(f"     - {path}")
         if post['engagement']:
             engagement_str = " | ".join([f"{k}: {v}" for k, v in post['engagement'].items() if v])
             if engagement_str:
@@ -769,7 +669,7 @@ def display_posts(posts):
         print("-" * 80)
 
 def main():
-    print("🚀 LinkedIn Posts Scraper with REAL Video Download")
+    print("🚀 LinkedIn Posts Scraper with Media Download")
     email = input("LinkedIn Email: ")
     password = getpass.getpass("LinkedIn Password: ")
     profile_url = input("LinkedIn Profile URL: ")
