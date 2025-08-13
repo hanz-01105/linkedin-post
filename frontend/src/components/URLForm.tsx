@@ -1,4 +1,3 @@
-// frontend/components/URLForm.tsx
 import React, { useState } from "react";
 import { User, Settings, Search, Loader2, Upload, AlertCircle } from "lucide-react";
 
@@ -24,24 +23,12 @@ const URLForm: React.FC<Props> = ({ onSubmit, onFileUpload, loading = false }) =
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    console.log('🔍 DEBUG - File selected:', file);
     
     if (file) {
-      console.log('🔍 DEBUG - File name:', file.name);
-      console.log('🔍 DEBUG - File type:', file.type);
-      console.log('🔍 DEBUG - File size:', file.size);
-      
       if (file.type === 'application/json' && onFileUpload) {
         try {
-          console.log('🔍 DEBUG - Reading file...');
           const text = await file.text();
-          console.log('🔍 DEBUG - File content length:', text.length);
-          console.log('🔍 DEBUG - File content preview:', text.substring(0, 200));
-          
           const jsonData = JSON.parse(text);
-          console.log('🔍 DEBUG - Parsed JSON:', jsonData);
-          console.log('🔍 DEBUG - JSON type:', typeof jsonData);
-          console.log('🔍 DEBUG - Is array:', Array.isArray(jsonData));
           
           // Handle different JSON structures
           let posts: any[] = [];  // Explicitly type as any[]
@@ -51,22 +38,20 @@ const URLForm: React.FC<Props> = ({ onSubmit, onFileUpload, loading = false }) =
           } else if (jsonData.posts && Array.isArray(jsonData.posts)) {
             // Wrapped in object with metadata (your case)
             posts = jsonData.posts;
-            console.log('🔍 DEBUG - Found posts in wrapped object:', posts.length);
           } else {
-            console.log('❌ DEBUG - Unknown JSON structure');
+            console.warn('Unknown JSON structure for posts data.');
           }
-          
-          console.log('🔍 DEBUG - Final posts array:', posts);
-          console.log('🔍 DEBUG - Calling onFileUpload...');
           
           onFileUpload(posts);
         } catch (error) {
-          console.error('❌ Error loading posts:', error);
-          alert('Error loading JSON file. Please check the file format.');
+          console.error('Error loading posts:', error);
+          // Using a custom message instead of alert for better UI/UX
+          // In a real app, you might use a state variable to show an error message on screen
+          console.log('Error loading JSON file. Please check the file format.');
         }
       } else {
-        console.log('❌ Invalid file type or no onFileUpload function');
-        alert('Please select a valid JSON file.');
+        // Using a custom message instead of alert for better UI/UX
+        console.log('Please select a valid JSON file.');
       }
     }
   };
