@@ -1,5 +1,5 @@
 // frontend/components/PostCard.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar, Heart, MessageCircle, Share, Image, Play, FileText, ExternalLink, User, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Post {
@@ -24,6 +24,8 @@ interface Props {
 export default function PostCard({ post, isLast = false, onScrollNext }: Props) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [imageError, setImageError] = useState<{[key: number]: boolean}>({});
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
   const formatDate = (timestamp?: string) => {
     if (!timestamp) return '';
@@ -36,11 +38,68 @@ export default function PostCard({ post, isLast = false, onScrollNext }: Props) 
     });
   };
 
-  // Check if we have media
-  const hasMedia = post.media_urls && post.media_urls.length > 0;
-  const currentImage = hasMedia && post.media_urls ? post.media_urls[currentImageIndex] : null;
+  // Filter out profile pictures from media URLs for background display
+  const getBackgroundMediaUrls = () => {
+    if (!post.media_urls || post.media_urls.length === 0) return [];
+    
+    return post.media_urls.filter(url => {
+      // Filter out profile pictures and small images that are likely avatars
+      // LinkedIn profile pictures usually contain specific patterns
+      const isProfilePicture = 
+        url.includes('profile-displayphoto') ||
+        url.includes('profile-photo') ||
+        url.includes('/profile/') ||
+        url.includes('entity-photo') ||
+        url.includes('actor-photo') ||
+        url.includes('presence-entity') ||
+        url.includes('_128_') || // Common profile pic size
+        url.includes('_100_') ||
+        url.includes('_50_') ||
+        url.includes('EntityPhoto') ||
+        url.includes('actor') ||
+        url.includes('avatar');
+      
+      return !isProfilePicture;
+    });
+  };
+
+  // Separate videos from images
+  const getVideoUrls = () => {
+    if (!post.media_urls || post.media_urls.length === 0) return [];
+    
+    return post.media_urls.filter(url => {
+      return url.includes('.mp4') || 
+             url.includes('.webm') || 
+             url.includes('.mov') || 
+             url.includes('video') ||
+             url.includes('.avi') ||
+             url.includes('.m4v') ||
+             url.includes('blob:');
+    });
+  };
+
+  const isVideoUrl = (url: string) => {
+    return url.includes('.mp4') || 
+           url.includes('.webm') || 
+           url.includes('.mov') || 
+           url.includes('video') ||
+           url.includes('.avi') ||
+           url.includes('.m4v') ||
+           url.includes('blob:');
+  };
+
+  const isBlobUrl = (url: string) => {
+    return url.startsWith('blob:');
+  };
+
+  const backgroundMedia = getBackgroundMediaUrls();
+  const videoUrls = getVideoUrls();
+  const hasBackgroundMedia = backgroundMedia.length > 0;
+  const hasVideos = videoUrls.length > 0;
+  const currentBackgroundImage = hasBackgroundMedia ? backgroundMedia[currentImageIndex] : null;
+  const currentIsVideo = currentBackgroundImage ? isVideoUrl(currentBackgroundImage) : false;
   
-  // Default gradient backgrounds if no image
+  // Default gradient backgrounds if no background media
   const gradients = [
     'from-blue-400 via-blue-500 to-indigo-600',
     'from-purple-400 via-purple-500 to-pink-600',
@@ -66,121 +125,248 @@ export default function PostCard({ post, isLast = false, onScrollNext }: Props) 
 
   const authorName = getAuthorName();
   
-  // Generate avatar URL with better fallback handling
+  // Generate avatar URL - using author_avatar if provided, otherwise generate from name
   const getAvatarUrl = () => {
-    // If we have an author_avatar URL from LinkedIn, use it
-    if (post.author_avatar && post.author_avatar.length > 0 && !post.author_avatar.includes('data:image')) {
-      // LinkedIn avatar URLs might need some processing
-      let avatarUrl = post.author_avatar;
-      
-      // If it's a relative URL, make it absolute
-      if (avatarUrl.startsWith('/')) {
-        avatarUrl = `https://www.linkedin.com${avatarUrl}`;
-      }
-      
-      // Ensure it's using HTTPS
-      avatarUrl = avatarUrl.replace('http://', 'https://');
-      
-      console.log('Using LinkedIn avatar:', avatarUrl);
-      return avatarUrl;
+    // If we have an author_avatar URL, use it
+    if (post.author_avatar && post.author_avatar.length > 0) {
+      return post.author_avatar;
     }
+    // Otherwise generate a placeholder avatar with initials
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=0077b5&color=fff&size=200&bold=true`;
+  };
+
+  // Touch handlers for mobile swipe
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
     
-    // Fallback to generated avatar with initials
-    const initials = authorName
-      .split(' ')
-      .map(word => word[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-    
-    console.log('Generating avatar for:', authorName, 'with initials:', initials);
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=0077b5&color=fff&size=200&bold=true&format=svg`;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe && backgroundMedia.length > 1) {
+      handleNextImage();
+    }
+    if (isRightSwipe && backgroundMedia.length > 1) {
+      handlePrevImage();
+    }
   };
 
   const handlePrevImage = () => {
-    const mediaLength = post.media_urls?.length || 0;
-    if (mediaLength <= 1) return;
+    if (backgroundMedia.length <= 1) return;
     setCurrentImageIndex(prev => 
-      prev === 0 ? mediaLength - 1 : prev - 1
+      prev === 0 ? backgroundMedia.length - 1 : prev - 1
     );
   };
 
   const handleNextImage = () => {
-    const mediaLength = post.media_urls?.length || 0;
-    if (mediaLength <= 1) return;
+    if (backgroundMedia.length <= 1) return;
     setCurrentImageIndex(prev => 
-      prev === mediaLength - 1 ? 0 : prev + 1
+      prev === backgroundMedia.length - 1 ? 0 : prev + 1
     );
   };
 
+  // Auto-advance images (optional)
+  useEffect(() => {
+    if (backgroundMedia.length <= 1) return;
+    
+    const interval = setInterval(() => {
+      setCurrentImageIndex(prev => 
+        prev === backgroundMedia.length - 1 ? 0 : prev + 1
+      );
+    }, 8000); // Change image every 8 seconds
+
+    return () => clearInterval(interval);
+  }, [backgroundMedia.length]);
+
   // Handle keyboard navigation for image carousel
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (!hasMedia || !post.media_urls || post.media_urls.length <= 1) return;
-    if (e.key === 'ArrowLeft') handlePrevImage();
-    if (e.key === 'ArrowRight') handleNextImage();
+    if (!hasBackgroundMedia || backgroundMedia.length <= 1) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      handlePrevImage();
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      handleNextImage();
+    }
   };
+
+  // Reset image index when post changes
+  useEffect(() => {
+    setCurrentImageIndex(0);
+    setImageError({});
+  }, [post.post_number]);
 
   return (
     <article className="min-h-screen flex flex-col bg-white">
-      {/* Hero Section with Image/Gradient - adjusted height for avatar */}
-      <div className="relative h-[45vh] md:h-[55vh] overflow-hidden" onKeyDown={handleKeyPress} tabIndex={0}>
-        {hasMedia && !imageError[currentImageIndex] ? (
-          <div className="relative w-full h-full">
-            <img
-              src={currentImage!}
-              alt={`Post image ${currentImageIndex + 1}`}
-              className="w-full h-full object-cover"
-              onError={() => {
-                setImageError(prev => ({ ...prev, [currentImageIndex]: true }));
-              }}
-            />
+      {/* Hero Section with Background Image Carousel - Dynamic Height */}
+      <div 
+        className="relative min-h-[50vh] max-h-[70vh] h-auto overflow-hidden cursor-pointer" 
+        onKeyDown={handleKeyPress} 
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        tabIndex={0}
+        style={{
+          height: hasBackgroundMedia ? 'auto' : '50vh'
+        }}
+      >
+        {hasBackgroundMedia && !imageError[currentImageIndex] ? (
+          <div className="relative w-full group">
+            {currentIsVideo ? (
+              isBlobUrl(currentBackgroundImage!) ? (
+                // For blob URLs, show a blank white background
+                <div className="w-full max-h-[70vh] min-h-[50vh] bg-white flex items-center justify-center">
+                  {/* Completely blank white space */}
+                </div>
+              ) : (
+                <video
+                  src={currentBackgroundImage!}
+                  className="w-full max-h-[70vh] min-h-[50vh] object-contain bg-gray-100 transition-opacity duration-500"
+                  style={{
+                    objectFit: 'contain',
+                    objectPosition: 'center',
+                    maxHeight: '70vh',
+                    minHeight: '50vh',
+                    width: '100%',
+                    display: 'block'
+                  }}
+                  controls
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  onError={(e) => {
+                    console.log('Video error:', e);
+                    setImageError(prev => ({ ...prev, [currentImageIndex]: true }));
+                  }}
+                  onLoadStart={() => {
+                    console.log('Video loading:', currentBackgroundImage);
+                  }}
+                />
+              )
+            ) : (
+              <img
+                src={currentBackgroundImage!}
+                alt={`Background image ${currentImageIndex + 1}`}
+                className="w-full max-h-[70vh] min-h-[50vh] object-contain bg-gray-100 transition-opacity duration-500"
+                style={{
+                  objectFit: 'contain',
+                  objectPosition: 'center',
+                  maxHeight: '70vh',
+                  minHeight: '50vh',
+                  width: '100%',
+                  display: 'block'
+                }}
+                onLoad={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  const container = img.parentElement;
+                  if (container) {
+                    // Adjust container height based on image aspect ratio
+                    const aspectRatio = img.naturalWidth / img.naturalHeight;
+                    const containerWidth = container.clientWidth;
+                    let calculatedHeight = containerWidth / aspectRatio;
+                    
+                    // Constrain height between min and max
+                    calculatedHeight = Math.max(calculatedHeight, window.innerHeight * 0.5); // min 50vh
+                    calculatedHeight = Math.min(calculatedHeight, window.innerHeight * 0.7); // max 70vh
+                    
+                    container.style.height = `${calculatedHeight}px`;
+                  }
+                }}
+                onError={() => {
+                  setImageError(prev => ({ ...prev, [currentImageIndex]: true }));
+                }}
+              />
+            )}
             
-            {/* Image carousel controls */}
-            {post.media_urls && post.media_urls.length > 1 && (
+            {/* Image carousel controls - always visible, enhanced styling */}
+            {backgroundMedia.length > 1 && (
               <>
                 {/* Previous button */}
                 <button
-                  onClick={handlePrevImage}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-all"
-                  aria-label="Previous image"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handlePrevImage();
+                  }}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/50 hover:bg-black/80 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm z-30 shadow-lg hover:scale-110 opacity-80 hover:opacity-100"
+                  aria-label="Previous media"
                 >
-                  <ChevronLeft className="w-6 h-6" />
+                  <ChevronLeft className="w-7 h-7" />
                 </button>
                 
                 {/* Next button */}
                 <button
-                  onClick={handleNextImage}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-all"
-                  aria-label="Next image"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleNextImage();
+                  }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/50 hover:bg-black/80 text-white rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm z-30 shadow-lg hover:scale-110 opacity-80 hover:opacity-100"
+                  aria-label="Next media"
                 >
-                  <ChevronRight className="w-6 h-6" />
+                  <ChevronRight className="w-7 h-7" />
                 </button>
                 
-                {/* Image indicators */}
-                <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex space-x-2">
-                  {post.media_urls.map((_, index) => (
+                {/* Image indicators/dots - simplified */}
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex space-x-2 z-30">
+                  {backgroundMedia.map((url, index) => (
                     <button
                       key={index}
-                      onClick={() => setCurrentImageIndex(index)}
-                      className={`w-2 h-2 rounded-full transition-all ${
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setCurrentImageIndex(index);
+                      }}
+                      className={`transition-all duration-300 ${
                         index === currentImageIndex 
-                          ? 'bg-white w-8' 
-                          : 'bg-white/60 hover:bg-white/80'
+                          ? 'bg-white w-8 h-2 rounded-full shadow-lg' 
+                          : 'bg-white/60 hover:bg-white/80 w-2 h-2 rounded-full'
                       }`}
-                      aria-label={`Go to image ${index + 1}`}
+                      aria-label={`Go to media ${index + 1}`}
                     />
                   ))}
                 </div>
                 
-                {/* Image counter */}
-                <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
-                  {currentImageIndex + 1} / {post.media_urls.length}
+                {/* Media counter with type indicator - simplified */}
+                <div className="absolute top-4 right-4 bg-black/60 text-white px-3 py-1.5 rounded-full text-sm backdrop-blur-sm z-30 shadow-lg flex items-center gap-1">
+                  {currentIsVideo && !isBlobUrl(currentBackgroundImage!) && <Play className="w-3 h-3" />}
+                  {!currentIsVideo && <Image className="w-3 h-3" />}
+                  {currentImageIndex + 1} / {backgroundMedia.length}
+                </div>
+
+                {/* Swipe instruction for mobile - simplified */}
+                <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-white/80 text-xs text-center z-30 md:hidden bg-black/30 px-3 py-1 rounded-full backdrop-blur-sm">
+                  Swipe to change media
                 </div>
               </>
             )}
+
+            {/* Media type indicator - simplified, only show for playable videos */}
+            {(post.post_type === 'video' || (currentIsVideo && !isBlobUrl(currentBackgroundImage!))) && (
+              <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1.5 rounded-full text-sm backdrop-blur-sm z-30 flex items-center gap-1 shadow-lg">
+                <Play className="w-4 h-4" />
+                Video
+              </div>
+            )}
+
+            {/* Overlay for better text readability only at bottom */}
+            <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10"></div>
           </div>
         ) : (
-          <div className={`w-full h-full bg-gradient-to-br ${defaultGradient} flex items-center justify-center`}>
+          <div className={`w-full min-h-[50vh] bg-gradient-to-br ${defaultGradient} flex items-center justify-center`}>
             <div className="text-center text-white">
               {post.post_type === 'video' ? (
                 <Play className="w-20 h-20 mx-auto opacity-50" />
@@ -196,24 +382,21 @@ export default function PostCard({ post, isLast = false, onScrollNext }: Props) 
           </div>
         )}
         
-        {/* Dark overlay gradient for better readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
-        
-        {/* Post metadata overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
-          <div className="max-w-4xl mx-auto">
-            {post.timestamp && (
-              <div className="flex items-center space-x-2 text-sm mb-4 opacity-90">
+        {/* Post metadata overlay - only when we have timestamp */}
+        {post.timestamp && (
+          <div className="absolute bottom-0 left-0 right-0 p-4 text-white z-20">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center space-x-2 text-sm opacity-90 bg-black/30 rounded-full px-3 py-1 backdrop-blur-sm w-fit">
                 <Calendar className="w-4 h-4" />
                 <span>{formatDate(post.timestamp)}</span>
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Avatar Section - Now properly positioned below the header */}
-      <div className="relative -mt-12 mb-6 z-10">
+      {/* Avatar Section - adjusted margin for dynamic header */}
+      <div className="relative -mt-8 mb-6 z-30">
         <div className="flex justify-center">
           <div className="w-24 h-24 md:w-28 md:h-28 rounded-full border-4 border-white bg-white shadow-xl overflow-hidden">
             <img
@@ -222,25 +405,9 @@ export default function PostCard({ post, isLast = false, onScrollNext }: Props) 
               className="w-full h-full object-cover"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
-                console.error('Avatar failed to load:', target.src);
-                // Try fallback to generated avatar
-                const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=0077b5&color=fff&size=200&bold=true&format=svg`;
-                if (target.src !== fallbackUrl) {
-                  target.src = fallbackUrl;
-                } else {
-                  // If even fallback fails, show placeholder
-                  target.style.display = 'none';
-                  if (target.nextElementSibling) {
-                    (target.nextElementSibling as HTMLElement).style.display = 'flex';
-                  }
-                }
+                target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=0077b5&color=fff&size=200`;
               }}
             />
-            <div className="hidden w-full h-full bg-gradient-to-br from-blue-500 to-blue-700 items-center justify-center">
-              <span className="text-white text-2xl font-bold">
-                {authorName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U'}
-              </span>
-            </div>
           </div>
         </div>
       </div>
@@ -253,10 +420,10 @@ export default function PostCard({ post, isLast = false, onScrollNext }: Props) 
             {authorName}
           </h2>
           
-          {/* Post type indicator if it's a repost */}
+          {/* Post type indicator - only for special types */}
           {post.post_type === 'repost' && (
-            <p className="text-center text-gray-500 mb-6 text-sm">
-              <Share className="inline w-4 h-4 mr-1" />
+            <p className="text-center text-gray-500 mb-4 text-sm flex items-center justify-center gap-1">
+              <Share className="inline w-4 h-4" />
               Reposted
             </p>
           )}
@@ -267,6 +434,8 @@ export default function PostCard({ post, isLast = false, onScrollNext }: Props) 
               {post.content}
             </p>
           </div>
+
+
 
           {/* Engagement Stats and Actions */}
           <div className="border-t border-gray-200 pt-6">

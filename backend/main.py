@@ -266,22 +266,22 @@ async def serve_media_file(session_id: str, filename: str):
     """Serve downloaded media files"""
     file_path = f"linkedin_posts/media_{session_id}/{filename}"
     
-    logger.info(f"🔍 Looking for media file: {file_path}")
+    logger.info(f" Looking for media file: {file_path}")
     
     if not os.path.exists(file_path):
-        logger.error(f"❌ Media file not found: {file_path}")
+        logger.error(f" Media file not found: {file_path}")
         
         # Check if media directory exists
         media_dir = f"linkedin_posts/media_{session_id}"
         if os.path.exists(media_dir):
             files = os.listdir(media_dir)
-            logger.info(f"📁 Files in {media_dir}: {files}")
+            logger.info(f" Files in {media_dir}: {files}")
         else:
-            logger.info(f"📁 Directory doesn't exist: {media_dir}")
+            logger.info(f" Directory doesn't exist: {media_dir}")
             
         raise HTTPException(status_code=404, detail=f"Media file not found: {filename}")
     
-    logger.info(f"✅ Serving media file: {file_path}")
+    logger.info(f" Serving media file: {file_path}")
     return FileResponse(file_path)
 
 def save_scrape_results(session_id: str, posts: List[dict], profiles: List[str]):
